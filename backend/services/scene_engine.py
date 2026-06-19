@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from services.traffic_signal import (
+from .traffic_signal import (
     analyze_traffic_signals,
     vehicle_crossed_stop_line,
     vehicle_in_junction,

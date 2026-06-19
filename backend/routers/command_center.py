@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from database import SessionLocal
-from models import Violation, Camera, Offender, Evidence
+from ..database import SessionLocal
+from ..models import Violation, Camera, Offender, Evidence
 from sqlalchemy import func
 from datetime import datetime, timedelta
 

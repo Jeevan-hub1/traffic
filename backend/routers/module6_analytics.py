@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
-from database import SessionLocal
-from models import Violation, Offender
+from ..database import SessionLocal
+from ..models import Violation, Offender
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from collections import defaultdict

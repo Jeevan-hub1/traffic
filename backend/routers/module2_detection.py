@@ -5,9 +5,9 @@ import numpy as np
 import base64
 from ultralytics import YOLO
 
-from services.tracker import SimpleTracker
-from services.scene_engine import process_scene, VEHICLE_LABELS, PERSON_LABEL, TRAFFIC_LIGHT_LABEL
-from services.traffic_signal import analyze_traffic_signals, annotate_signals
+from ..services.tracker import SimpleTracker
+from ..services.scene_engine import process_scene, VEHICLE_LABELS, PERSON_LABEL, TRAFFIC_LIGHT_LABEL, to_python_type
+from ..services.traffic_signal import analyze_traffic_signals, annotate_signals
 
 router = APIRouter()
 
@@ -107,7 +107,7 @@ async def detect_objects(file: UploadFile = File(...)):
         scene_data = process_scene(img, tracked, yolo_lights)
         annotated = _annotate_scene(img, scene_data)
 
-        return {
+        return to_python_type({
             "objects": tracked,
             "scene": scene_data["scene"],
             "scene_graph": scene_data["scene_graph"],
@@ -118,7 +118,7 @@ async def detect_objects(file: UploadFile = File(...)):
             "traffic_signals": scene_data["traffic_signals"],
             "annotated_image": _encode_image(annotated),
             "model": "YOLOv11n + signal classifier + ByteTrack-style tracker",
-        }
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

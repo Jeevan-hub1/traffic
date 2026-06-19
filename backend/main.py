@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from database import engine, Base
-from init_db import init_db
-from routers import (
+from .database import engine, Base
+from .init_db import init_db
+from .routers import (
     module1_quality,
     module2_detection,
     module3_violation,

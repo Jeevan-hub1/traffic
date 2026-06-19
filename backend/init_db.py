@@ -1,5 +1,5 @@
-from database import engine, SessionLocal
-from models import Base, Camera, Offender, Violation
+from .database import engine, SessionLocal, Base
+from .models import Camera, Offender, Violation
 import datetime
 import random
 

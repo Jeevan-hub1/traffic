@@ -9,8 +9,8 @@ import os
 import cv2
 import numpy as np
 
-from database import SessionLocal
-from models import Evidence
+from ..database import SessionLocal
+from ..models import Evidence
 
 router = APIRouter()
 EVIDENCE_DIR = os.path.join(os.path.dirname(__file__), "..", "storage", "evidence")

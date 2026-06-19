@@ -5,12 +5,12 @@ import time
 import tempfile
 import os
 
-from routers.module1_quality import analyze_image, adaptive_enhance, encode_image
-from routers.module2_detection import model as yolo_model, _parse_detections, _annotate_scene
-from routers.module3_violation import VerificationRequest, Candidate, StructuredSceneItem, verify_violations
-from routers.module4_lpr import _ocr_frame, fuse_plates, validate_plate, compute_trust_score, _vahan_lookup
-from routers.module5_evidence import EvidenceRequest, generate_evidence
-from services.scene_engine import process_scene
+from .module1_quality import analyze_image, adaptive_enhance, encode_image
+from .module2_detection import model as yolo_model, _parse_detections, _annotate_scene
+from .module3_violation import VerificationRequest, Candidate, StructuredSceneItem, verify_violations
+from .module4_lpr import _ocr_frame, fuse_plates, validate_plate, compute_trust_score, _vahan_lookup
+from .module5_evidence import EvidenceRequest, generate_evidence
+from ..services.scene_engine import process_scene
 
 router = APIRouter()
 

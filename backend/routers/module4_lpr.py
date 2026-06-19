@@ -5,8 +5,8 @@ import numpy as np
 import easyocr
 import re
 from collections import Counter
-from database import SessionLocal
-from models import Offender, Violation
+from ..database import SessionLocal
+from ..models import Offender, Violation
 from sqlalchemy import func
 
 router = APIRouter()

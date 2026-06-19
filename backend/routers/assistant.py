@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from database import SessionLocal
-from models import Offender, Violation, Camera
+from ..database import SessionLocal
+from ..models import Offender, Violation, Camera
 from sqlalchemy import func
 
 router = APIRouter()
