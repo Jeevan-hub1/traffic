@@ -64,7 +64,8 @@ docker compose up --build
 | `POST /api/violation/verify` | Hierarchical violation verification |
 | `POST /api/lpr/recognize-multi` | Multi-frame OCR fusion |
 | `GET /api/lpr/vahan/{plate}` | VAHAN offender registry lookup |
-| `POST /api/pipeline/process` | End-to-end pipeline (image or video) |
+| `POST /api/pipeline/process` | **End-to-end pipeline (auto-detects image/video)** |
+| `POST /api/pipeline/process-video-detailed` | **Full video processing with all 8 modules** |
 | `GET /api/command-center/dashboard` | Live ops dashboard data |
 | `GET /api/analytics/summary` | Violation analytics |
 | `GET /api/predictions/forecast` | 7-day violation forecast |
@@ -83,6 +84,40 @@ Uses YOLOv11 `traffic light` class + HSV bulb classification:
 - **Backend**: FastAPI, OpenCV, YOLOv11 (Ultralytics), EasyOCR, SQLAlchemy, SQLite
 - **Frontend**: React 19, Vite, Tailwind CSS, Recharts, ReactFlow
 - **ML**: YOLOv11n, heuristic helmet/seatbelt, HSV signal classifier
+
+## Video AI Pipeline
+
+**NEW!** The platform now supports **complete video processing** through all 8 modules:
+
+```
+Traffic Video → Frame Extraction → Module 1-8 Processing → Aggregated Analytics → Annotated Video Output
+```
+
+### Features:
+- ✅ Process ALL frames (intelligent FPS adaptation: ~15 FPS)
+- ✅ Multi-frame vehicle tracking with temporal continuity
+- ✅ Violation aggregation & repeat offender detection
+- ✅ Auto-generated annotated video with bounding boxes & signal state
+- ✅ Per-frame breakdown with timestamps
+- ✅ License plate detection across entire video
+- ✅ Comprehensive video report (JSON)
+
+### Quick Example:
+```bash
+# Upload a traffic video for complete analysis
+curl -X POST "http://localhost:8000/api/pipeline/process" \
+  -F "file=@traffic_video.mp4"
+
+# Returns:
+# - 8 modules of analysis per frame
+# - Aggregated violations by type
+# - Repeat offenders (vehicles with multiple violations)
+# - Annotated video (base64)
+# - Timeline of events
+```
+
+See **[VIDEO_PIPELINE_GUIDE.md](./VIDEO_PIPELINE_GUIDE.md)** for detailed documentation.
+
 
 ## Project Structure
 

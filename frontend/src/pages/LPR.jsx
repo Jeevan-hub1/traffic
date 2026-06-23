@@ -25,11 +25,15 @@ export default function LPR() {
   const [fused, setFused] = useState(false);
 
   useEffect(() => {
-    const cached = getPipelineResult();
-    if (cached?.module4_lpr?.verified) {
-      setResult(cached.module4_lpr);
-      setFused(true);
-    }
+    const loadCached = async () => {
+      const cached = await getPipelineResult();
+      if (cached?.module4_lpr) {
+        // Handle both single-frame mode (fused_plate) and video mode (plates_found)
+        setResult(cached.module4_lpr);
+        setFused(true);
+      }
+    };
+    loadCached();
   }, []);
 
   const handleUpload = async (fileList) => {
@@ -52,6 +56,8 @@ export default function LPR() {
   const frames = result?.frames || [];
   const plate = result?.fused_plate;
   const trust = result?.trust_score || 0;
+  const platesFound = result?.plates_found || [];
+  const isVideoMode = platesFound.length > 1;
 
   return (
     <div className="page-enter">
@@ -69,21 +75,54 @@ export default function LPR() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div className="glass-card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 16 }}>Fused Final Plate</div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, background: '#ffffff', padding: '12px 24px', borderRadius: 12, border: '2px solid #e2e8f0' }}>
-              <div style={{ position: 'absolute', width: 24, background: '#4f46e5' }} />
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 42, fontWeight: 800, color: '#0f172a', letterSpacing: '0.1em' }}>
-                {loading ? '...' : fused && plate ? plate : '— — — — — —'}
+          {/* Video Mode: Display all detected plates */}
+          {isVideoMode && platesFound.length > 0 ? (
+            <div className="glass-card" style={{ padding: 24 }}>
+              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 16 }}>
+                All Detected Plates ({platesFound.length})
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                {platesFound.map((p, i) => (
+                  <div key={i} style={{ padding: 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 24, fontWeight: 800, color: '#dc2626', marginBottom: 8, letterSpacing: '0.05em' }}>
+                      {p.plate || 'N/A'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+                      Frame: {p.frame}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+                      Confidence: {Math.min(100, p.confidence || 0).toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                      Trust: {Math.min(100, p.trust_score || 0).toFixed(0)}%
+                    </div>
+                    {p.vahan?.found && (
+                      <div style={{ fontSize: 10, color: '#d97706', fontWeight: 600, padding: '4px 8px', background: '#fef3c7', borderRadius: 6 }}>
+                        VAHAN Match
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-            {fused && plate && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, color: '#059669' }}>
-                <CheckCircle size={16} />
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Trust Score {trust}% — {result?.validation_passed ? 'Format Validated' : 'Pending Validation'}</span>
+          ) : (
+            /* Single Frame Mode: Display fused plate */
+            <div className="glass-card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 16 }}>Fused Final Plate</div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 16, background: '#ffffff', padding: '12px 24px', borderRadius: 12, border: '2px solid #e2e8f0' }}>
+                <div style={{ position: 'absolute', width: 24, background: '#4f46e5' }} />
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 42, fontWeight: 800, color: '#0f172a', letterSpacing: '0.1em' }}>
+                  {loading ? '...' : fused && plate ? plate : '— — — — — —'}
+                </div>
               </div>
-            )}
-          </div>
+              {fused && plate && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, color: '#059669' }}>
+                  <CheckCircle size={16} />
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>Trust Score {trust}% — {result?.validation_passed ? 'Format Validated' : 'Pending Validation'}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="glass-card" style={{ padding: 24 }}>
             <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 20 }}>Multi-Frame Extraction</div>

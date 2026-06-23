@@ -17,3 +17,23 @@ __pycache__/
 
 # Environment
 .env
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Models
+*.pt
+*.pth
+
+# Database
+*.db
+
+# Evidence
+backend/storage/evidence/
+
+# Frontend
+node_modules/
+
+# Environment
+.env

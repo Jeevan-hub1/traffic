@@ -17,10 +17,13 @@ export default function Detection() {
   const [files, setFiles] = useState([]);
 
   useEffect(() => {
-    const cached = getPipelineResult();
-    if (cached?.module2_detection) {
-      applyResult(cached.module2_detection);
-    }
+    const loadCached = async () => {
+      const cached = await getPipelineResult();
+      if (cached?.module2_detection) {
+        applyResult(cached.module2_detection);
+      }
+    };
+    loadCached();
   }, []);
 
   const applyResult = (data) => {

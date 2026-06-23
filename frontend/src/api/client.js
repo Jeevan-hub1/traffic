@@ -5,16 +5,56 @@ const api = axios.create({
   timeout: 180000,
 });
 
-const PIPELINE_KEY = 'safevision_pipeline_result';
+const videoApi = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api',
+  timeout: 600000,
+});
 
-export function savePipelineResult(data) {
-  sessionStorage.setItem(PIPELINE_KEY, JSON.stringify(data));
+const PIPELINE_KEY = 'safevision_pipeline_result';
+const DB_NAME = 'SafeVisionDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'pipelineResults';
+
+// Initialize IndexedDB
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+export async function savePipelineResult(data) {
+  try {
+    // Clear old cache
+    const db = await initDB();
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    store.put(data, PIPELINE_KEY);
+  } catch (error) {
+    console.warn('Failed to save pipeline result to IndexedDB:', error);
+  }
 }
 
-export function getPipelineResult() {
+export async function getPipelineResult() {
   try {
-    const raw = sessionStorage.getItem(PIPELINE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const db = await initDB();
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(PIPELINE_KEY);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
   } catch {
     return null;
   }
@@ -130,7 +170,7 @@ export async function vahanLookup(plate) {
 export async function processPipeline(file) {
   const form = new FormData();
   form.append('file', file);
-  const { data } = await api.post('/pipeline/process', form);
+  const { data } = await videoApi.post('/pipeline/process', form);
   savePipelineResult(data);
   return data;
 }

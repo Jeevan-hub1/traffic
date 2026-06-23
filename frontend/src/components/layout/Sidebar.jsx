@@ -4,7 +4,7 @@ import {
   Shield, LayoutDashboard, Activity, Cpu, AlertTriangle,
   CreditCard, FileText, BarChart3, TrendingUp,
   Gauge, MessageSquare, ChevronLeft, ChevronRight,
-  Eye, Zap, Radio,
+  Eye, Zap, Radio, Bluetooth,
 } from 'lucide-react';
 
 const navGroups = [
@@ -39,6 +39,7 @@ const navGroups = [
     items: [
       { to: '/evaluation', icon: Gauge, label: 'M7 · Evaluation' },
       { to: '/assistant', icon: MessageSquare, label: 'AI Assistant' },
+      { to: '/bluetooth', icon: Bluetooth, label: 'Bluetooth Camera' },
     ]
   },
 ];
