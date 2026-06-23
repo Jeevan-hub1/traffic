@@ -10,8 +10,11 @@ export default function Evidence() {
   const [verified, setVerified] = useState(false);
 
   useEffect(() => {
-    const cached = getPipelineResult();
-    if (cached?.module5_evidence) setData(cached.module5_evidence);
+    const loadCached = async () => {
+      const cached = await getPipelineResult();
+      if (cached?.module5_evidence) setData(cached.module5_evidence);
+    };
+    loadCached();
   }, []);
 
   const copyHash = () => {

@@ -76,20 +76,28 @@ def detect_helmet_status(image: np.ndarray, person_bbox: list[float], role: str)
     h = y2 - y1
     head = image[max(0, y1): max(0, y1 + int(h * 0.35)), max(0, x1): max(0, x2)]
     if head.size == 0:
-        return {"detected": False, "status": "missing", "confidence": 70}
+        return {"detected": False, "status": "missing", "confidence": 50}
 
-    hsv = cv2.cvtColor(head, cv2.COLOR_BGR2HSV)
-    sat_mean = float(np.mean(hsv[:, :, 1]))
-    val_mean = float(np.mean(hsv[:, :, 2]))
-    edge_density = float(cv2.Laplacian(cv2.cvtColor(head, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
-
-    helmet_likely = sat_mean > 45 and val_mean > 80 and edge_density > 80
-    confidence = min(98, max(72, int(75 + edge_density / 20)))
-    return {
-        "detected": bool(helmet_likely),
-        "status": "present" if helmet_likely else "missing",
-        "confidence": confidence if helmet_likely else confidence - 5,
-    }
+    try:
+        gray_head = cv2.cvtColor(head, cv2.COLOR_BGR2GRAY)
+        
+        edge_density = float(cv2.Laplacian(gray_head, cv2.CV_64F).var())
+        bright_pixels = np.sum(gray_head > 100) / gray_head.size
+        dark_pixels = np.sum(gray_head < 50) / gray_head.size
+        
+        head_region_has_structure = edge_density > 50 and bright_pixels > 0.05
+        non_uniform = abs(bright_pixels - dark_pixels) > 0.05
+        
+        helmet_likely = head_region_has_structure and non_uniform
+        confidence = int(min(95, max(55, 60 + edge_density / 50 + bright_pixels * 30)))
+        
+        return {
+            "detected": bool(helmet_likely),
+            "status": "present" if helmet_likely else "unknown",
+            "confidence": confidence,
+        }
+    except Exception:
+        return {"detected": False, "status": "unknown", "confidence": 40}
 
 
 def detect_seatbelt_status(image: np.ndarray, person_bbox: list[float], role: str) -> dict:
@@ -99,18 +107,29 @@ def detect_seatbelt_status(image: np.ndarray, person_bbox: list[float], role: st
     x1, y1, x2, y2 = [int(v) for v in person_bbox]
     torso = image[max(0, y1 + int((y2 - y1) * 0.2)): y2, x1:x2]
     if torso.size == 0:
-        return {"detected": False, "status": "missing", "confidence": 68}
+        return {"detected": False, "status": "unknown", "confidence": 40}
 
-    gray = cv2.cvtColor(torso, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
-    diagonal = float(np.sum(edges > 0)) / edges.size
-    belt_likely = diagonal > 0.04
-    confidence = min(95, max(70, int(72 + diagonal * 400)))
-    return {
-        "detected": bool(belt_likely),
-        "status": "present" if belt_likely else "missing",
-        "confidence": confidence,
-    }
+    try:
+        gray = cv2.cvtColor(torso, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blur, 30, 100)
+        
+        edge_count = float(np.sum(edges > 0))
+        edge_ratio = edge_count / edges.size if edges.size > 0 else 0
+        
+        vertical_edges = cv2.Sobel(blur, cv2.CV_64F, 1, 0, ksize=3)
+        vertical_ratio = float(np.sum(np.abs(vertical_edges) > 50)) / vertical_edges.size
+        
+        belt_detected = edge_ratio > 0.01 and vertical_ratio > 0.01
+        confidence = int(min(90, max(50, 55 + edge_ratio * 1000 + vertical_ratio * 500)))
+        
+        return {
+            "detected": bool(belt_detected),
+            "status": "present" if belt_detected else "unknown",
+            "confidence": confidence,
+        }
+    except Exception:
+        return {"detected": False, "status": "unknown", "confidence": 40}
 
 
 def find_plate_region(image: np.ndarray, vehicle_bbox: list[float]) -> dict | None:
@@ -242,14 +261,106 @@ def build_scene_graph(scene: dict, candidates: list[dict]) -> dict:
     nodes = []
     edges = []
 
+    # Add road context as nodes
+    road = scene.get("road_context", {})
+    if road.get("stop_line_detected"):
+        nodes.append({
+            "id": "stop_line",
+            "type": "road_feature",
+            "label": "Stop Line",
+            "confidence": road.get("signal_confidence", 0),
+            "metadata": {"y_ratio": road.get("stop_line_y_ratio", 0.72)}
+        })
+    if road.get("lane_markings_detected"):
+        nodes.append({
+            "id": "lane_markings",
+            "type": "road_feature",
+            "label": "Lane Markings",
+            "confidence": 80,
+            "metadata": {"detected": True}
+        })
+    if road.get("parking_zone_detected"):
+        nodes.append({
+            "id": "parking_zone",
+            "type": "road_feature",
+            "label": "Parking Zone",
+            "confidence": 75,
+            "metadata": {"restricted": True}
+        })
+
+    # Add traffic signal nodes
+    for sig in road.get("traffic_signals", []):
+        sid = sig["id"]
+        nodes.append({
+            "id": sid,
+            "type": "traffic_signal",
+            "label": f"Signal: {sig['state'].upper()}",
+            "confidence": sig["confidence"],
+            "metadata": {"bbox": sig.get("bbox"), "state": sig.get("state")}
+        })
+
+    # Calculate spatial relationships between vehicles
+    vehicle_positions = {}
     for vehicle in scene["vehicles"]:
         vid = vehicle["track_id"]
+        bbox = vehicle["bbox"]
+        vehicle_positions[vid] = {
+            "center": center(bbox),
+            "bbox": bbox,
+            "label": vehicle["label"]
+        }
+
+    # Add vehicle nodes with enhanced metadata
+    for vehicle in scene["vehicles"]:
+        vid = vehicle["track_id"]
+        bbox = vehicle["bbox"]
+        v_center = center(bbox)
+        
+        # Determine position relative to other vehicles
+        position_context = "unknown"
+        for other_vid, other_data in vehicle_positions.items():
+            if other_vid != vid:
+                other_center = other_data["center"]
+                dx = other_center[0] - v_center[0]
+                dy = other_center[1] - v_center[1]
+                if abs(dx) < 50 and dy < -50:
+                    position_context = "behind"
+                elif abs(dx) < 50 and dy > 50:
+                    position_context = "ahead"
+                elif dx < -50:
+                    position_context = "left"
+                elif dx > 50:
+                    position_context = "right"
+                break
+
         nodes.append({
             "id": vid,
             "type": "vehicle",
             "label": f"{vehicle['label'].title()} ({vid})",
             "confidence": vehicle["confidence"],
+            "metadata": {
+                "position": position_context,
+                "bbox": bbox,
+                "center": v_center,
+                "occupants_count": len(vehicle.get("occupants", [])),
+                "plate_detected": bool(vehicle.get("plate", {}).get("detected"))
+            }
         })
+
+        # Add spatial edges to nearby vehicles
+        for other_vid, other_data in vehicle_positions.items():
+            if other_vid != vid:
+                distance = ((v_center[0] - other_data["center"][0])**2 + 
+                           (v_center[1] - other_data["center"][1])**2)**0.5
+                if distance < 200:  # Only connect nearby vehicles
+                    edges.append({
+                        "source": vid,
+                        "target": other_vid,
+                        "relation": "nearby",
+                        "metadata": {"distance": round(distance, 1)}
+                    })
+
+        # Add occupant nodes
         for occ in vehicle.get("occupants", []):
             oid = occ["id"]
             nodes.append({
@@ -257,39 +368,116 @@ def build_scene_graph(scene: dict, candidates: list[dict]) -> dict:
                 "type": "person",
                 "label": f"{occ['role'].title()} ({oid})",
                 "confidence": occ["confidence"],
+                "metadata": {
+                    "role": occ["role"],
+                    "helmet_status": occ.get("helmet", {}).get("status", "unknown"),
+                    "seatbelt_status": occ.get("seatbelt", {}).get("status", "unknown")
+                }
             })
-            edges.append({"source": vid, "target": oid, "relation": occ["role"]})
+            edges.append({
+                "source": vid,
+                "target": oid,
+                "relation": occ["role"],
+                "metadata": {"confidence": occ["confidence"]}
+            })
 
             helmet = occ.get("helmet", {})
             if helmet.get("status") == "missing":
                 hid = f"{oid}_helmet"
-                nodes.append({"id": hid, "type": "equipment", "label": "Helmet Missing", "confidence": helmet.get("confidence", 0)})
-                edges.append({"source": oid, "target": hid, "relation": "requires"})
+                nodes.append({
+                    "id": hid,
+                    "type": "equipment",
+                    "label": "Helmet Missing",
+                    "confidence": helmet.get("confidence", 0),
+                    "metadata": {"severity": "high"}
+                })
+                edges.append({
+                    "source": oid,
+                    "target": hid,
+                    "relation": "requires",
+                    "metadata": {"missing": True}
+                })
+
+            seatbelt = occ.get("seatbelt", {})
+            if seatbelt.get("status") == "missing":
+                sid = f"{oid}_seatbelt"
+                nodes.append({
+                    "id": sid,
+                    "type": "equipment",
+                    "label": "Seatbelt Missing",
+                    "confidence": seatbelt.get("confidence", 0),
+                    "metadata": {"severity": "medium"}
+                })
+                edges.append({
+                    "source": oid,
+                    "target": sid,
+                    "relation": "requires",
+                    "metadata": {"missing": True}
+                })
 
         plate = vehicle.get("plate")
         if plate and plate.get("detected"):
             pid = f"{vid}_plate"
-            nodes.append({"id": pid, "type": "plate", "label": "License Plate", "confidence": plate["confidence"]})
-            edges.append({"source": vid, "target": pid, "relation": "has_plate"})
+            nodes.append({
+                "id": pid,
+                "type": "plate",
+                "label": "License Plate",
+                "confidence": plate["confidence"],
+                "metadata": {"bbox": plate.get("bbox")}
+            })
+            edges.append({
+                "source": vid,
+                "target": pid,
+                "relation": "has_plate",
+                "metadata": {"confidence": plate["confidence"]}
+            })
 
+    # Add pedestrian nodes
+    for person in scene.get("persons", []):
+        pid = person["id"]
+        nodes.append({
+            "id": pid,
+            "type": "person",
+            "label": f"Pedestrian ({pid})",
+            "confidence": person["confidence"],
+            "metadata": {
+                "role": "pedestrian",
+                "bbox": person["bbox"]
+            }
+        })
+
+    # Add violation candidate nodes with enhanced metadata
     for cand in candidates:
         cid = f"cand_{cand['candidate']}_{cand['vehicle_id']}"
+        severity = "high" if cand["candidate"] in ["red_light_violation", "triple_riding"] else "medium"
         nodes.append({
             "id": cid,
             "type": "violation_candidate",
             "label": cand["candidate"].replace("_", " ").title(),
             "confidence": cand["confidence"],
+            "metadata": {
+                "severity": severity,
+                "reason": cand["reason"],
+                "vehicle_id": cand["vehicle_id"]
+            }
         })
-        edges.append({"source": cand["vehicle_id"], "target": cid, "relation": "candidate"})
+        edges.append({
+            "source": cand["vehicle_id"],
+            "target": cid,
+            "relation": "candidate",
+            "metadata": {"confidence": cand["confidence"]}
+        })
 
-    for sig in scene.get("road_context", {}).get("traffic_signals", []):
-        sid = sig["id"]
-        nodes.append({
-            "id": sid,
-            "type": "traffic_signal",
-            "label": f"Signal: {sig['state'].upper()}",
-            "confidence": sig["confidence"],
-        })
+    # Connect vehicles to road features
+    for vehicle in scene["vehicles"]:
+        vid = vehicle["track_id"]
+        if road.get("stop_line_detected"):
+            edges.append({
+                "source": vid,
+                "target": "stop_line",
+                "relation": "near",
+                "metadata": {"distance": "proximity"}
+            })
 
     return {"nodes": nodes, "edges": edges}
 

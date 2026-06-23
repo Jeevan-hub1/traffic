@@ -59,10 +59,13 @@ export default function Replay() {
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    const cached = getPipelineResult();
-    if (cached?.video_mode && cached?.frame_results?.length) {
-      loadFromPipeline(cached);
-    }
+    const loadCached = async () => {
+      const cached = await getPipelineResult();
+      if (cached?.video_mode && cached?.frame_results?.length) {
+        loadFromPipeline(cached);
+      }
+    };
+    loadCached();
   }, []);
 
   const loadFromPipeline = (data) => {

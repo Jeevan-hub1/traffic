@@ -8,9 +8,13 @@ from collections import Counter
 from ..database import SessionLocal
 from ..models import Offender, Violation
 from sqlalchemy import func
+from ultralytics import YOLO
 
 router = APIRouter()
 reader = easyocr.Reader(["en"], gpu=False)
+
+# Load YOLO model for license plate detection
+plate_detector = YOLO("yolov8n.pt")
 
 INDIAN_PLATE_RE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z]{1,3}[0-9]{4}$")
 
@@ -21,6 +25,34 @@ def clean_plate(text: str) -> str:
 
 def validate_plate(plate: str) -> bool:
     return bool(INDIAN_PLATE_RE.match(plate))
+
+
+def detect_plate_regions(img: np.ndarray) -> list[np.ndarray]:
+    """
+    Detect license plate regions using YOLO model.
+    Returns cropped plate regions for OCR processing.
+    """
+    try:
+        # Run YOLO detection
+        results = plate_detector(img, conf=0.3, iou=0.5)
+        
+        plate_regions = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                
+                # Crop the plate region
+                plate_roi = img[y1:y2, x1:x2]
+                if plate_roi.size > 0:
+                    plate_regions.append(plate_roi)
+        
+        return plate_regions
+    except Exception as e:
+        # Fallback: return original image if detection fails
+        return [img]
 
 
 def plate_quality(image: np.ndarray) -> dict:
@@ -108,6 +140,18 @@ def _plates_similar(plate1: str, plate2: str) -> bool:
 
 
 def compute_trust_score(ocr_conf: float, visibility: float, agreement: float, validated: bool) -> float:
+    """
+    Compute trust score for license plate recognition.
+    
+    Args:
+        ocr_conf: OCR confidence 0-100 (already percentage)
+        visibility: Visibility score 0-100
+        agreement: Agreement score 0-100
+        validated: Boolean indicating if plate matches validation regex
+        
+    Returns:
+        Trust score 0-100
+    """
     # Improved weights based on importance
     # OCR confidence: 30% (primary factor)
     # Visibility: 20% (image quality)
@@ -115,35 +159,44 @@ def compute_trust_score(ocr_conf: float, visibility: float, agreement: float, va
     # Validation: 25% (format compliance)
     weights = [0.30, 0.20, 0.25, 0.25]
     
-    # Normalize scores to 0-100 range
-    normalized_ocr = min(100, max(0, ocr_conf))
-    normalized_visibility = min(100, max(0, visibility))
-    normalized_agreement = min(100, max(0, agreement))
+    # Ensure all inputs are 0-100 range
+    normalized_ocr = max(0, min(100, float(ocr_conf)))
+    normalized_visibility = max(0, min(100, float(visibility)))
+    normalized_agreement = max(0, min(100, float(agreement)))
     normalized_validation = 100 if validated else 30  # Lower penalty for invalid format
     
     scores = [normalized_ocr, normalized_visibility, normalized_agreement, normalized_validation]
     
     # Calculate weighted average
-    trust_score = round(sum(w * s for w, s in zip(weights, scores)), 2)
+    trust_score = round(sum(w * s for w, s in zip(weights, scores)), 1)
     
     # Additional boost for high agreement across multiple frames
     if agreement >= 80:
         trust_score = min(100, trust_score + 5)
     
-    return trust_score
+    # Ensure result is in valid range
+    return max(0, min(100, trust_score))
 
 
 def _ocr_frame(img: np.ndarray, frame_id: int) -> dict:
     quality = plate_quality(img)
-    enhanced = enhance_plate(img)
-    ocr_results = reader.readtext(enhanced)
-
+    
+    # Detect license plate regions first
+    plate_regions = detect_plate_regions(img)
+    
     plates = []
-    for (_, text, prob) in ocr_results:
-        cleaned = clean_plate(text)
-        if len(cleaned) >= 6:
-            plates.append({"raw_text": text, "plate": cleaned, "confidence": round(prob * 100, 2)})
-
+    for region in plate_regions:
+        enhanced = enhance_plate(region)
+        ocr_results = reader.readtext(enhanced)
+        
+        for (_, text, prob) in ocr_results:
+            cleaned = clean_plate(text)
+            # Only accept plates that match Indian format or are at least 6 characters
+            if len(cleaned) >= 6:
+                # Additional filter: reject common sign text
+                if cleaned not in ["NOPARKING", "NOSTOPPING", "NOENTRY", "PARKING", "STOP"]:
+                    plates.append({"raw_text": text, "plate": cleaned, "confidence": round(prob * 100, 2)})
+    
     plates.sort(key=lambda x: x["confidence"], reverse=True)
     best = plates[0] if plates else None
     tampering = detect_tampering(quality, best["confidence"] if best else 0)

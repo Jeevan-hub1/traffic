@@ -16,6 +16,7 @@ import Intelligence from './pages/Intelligence';
 import Predictions from './pages/Predictions';
 import Evaluation from './pages/Evaluation';
 import Assistant from './pages/Assistant';
+import Bluetooth from './pages/Bluetooth';
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/predictions" element={<Predictions />} />
           <Route path="/evaluation" element={<Evaluation />} />
           <Route path="/assistant" element={<Assistant />} />
+          <Route path="/bluetooth" element={<Bluetooth />} />
         </Route>
 
         {/* Catch-all redirect */}

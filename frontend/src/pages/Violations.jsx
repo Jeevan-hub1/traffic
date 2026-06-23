@@ -9,8 +9,14 @@ export default function Violations() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const cached = getPipelineResult();
-    if (cached?.module3_violation) setResult(cached.module3_violation);
+    const loadCached = async () => {
+      const cached = await getPipelineResult();
+      if (cached?.module3_violation) {
+        // Handle both single-frame mode (violations array) and video mode (all_violations array)
+        setResult(cached.module3_violation);
+      }
+    };
+    loadCached();
   }, []);
 
   const runFromUpload = async (file) => {
@@ -32,9 +38,10 @@ export default function Violations() {
     }
   };
 
-  const violations = result?.violations || [];
+  const violations = result?.all_violations || result?.violations || [];
   const steps = result?.verification_steps || [];
   const timeline = result?.timeline || [];
+  const isVideoMode = result?.all_violations && result?.all_violations.length > 0;
 
   return (
     <div className="page-enter">
@@ -59,7 +66,40 @@ export default function Violations() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {result?.composite && violations.length > 1 ? (
+          {isVideoMode && violations.length > 0 ? (
+            <div className="glass-card" style={{ padding: 24, border: '2px solid #fecaca', background: '#fef2f2' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                <ShieldAlert size={28} color="#dc2626" />
+                <div>
+                  <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 20, fontWeight: 800, color: '#dc2626' }}>
+                    ALL VIOLATIONS DETECTED ({violations.length})
+                  </div>
+                  <div style={{ fontSize: 13, color: '#ea580c', fontWeight: 600 }}>Video mode - violations across all frames</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {violations.map((v, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: '#ffffff', borderRadius: 12, border: '1px solid #fca5a5' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <AlertTriangle size={20} color={v.severity === 'high' || v.severity === 'critical' ? '#dc2626' : '#d97706'} />
+                      <div>
+                        <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                          {v.type?.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) || 'Violation'}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#475569' }}>
+                          Frame {v.frame} • {v.details?.evidence_detail || v.evidence_detail || 'No details'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                      <div style={{ fontSize: 12, color: '#059669', fontWeight: 700 }}>Conf: {Math.min(100, (v.confidence || 0) * 100).toFixed(0)}%</div>
+                      <div style={{ fontSize: 10, color: '#64748b' }}>Frame {v.frame}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : result?.composite && violations.length > 1 ? (
             <div className="glass-card" style={{ padding: 24, border: '2px solid #fecaca', background: '#fef2f2' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                 <ShieldAlert size={28} color="#dc2626" />

@@ -246,9 +246,9 @@ async def analyze_quality(file: UploadFile = File(...)):
         ]
 
         return {
-            "quality_score_before": before["overall_score"],
-            "quality_score_after": after["overall_score"],
-            "improvement": after["overall_score"] - before["overall_score"],
+            "quality_score_before": int(before["overall_score"]),
+            "quality_score_after": int(after["overall_score"]),
+            "improvement": int(after["overall_score"]) - int(before["overall_score"]),
             "brightness": before["brightness_level"],
             "blur": before["blur_level"],
             "contrast": before["contrast_level"],

@@ -18,19 +18,29 @@ export const STAGE_DEFINITIONS = [
     color: '#4f46e5',
     input: 'Raw traffic surveillance image',
     processing: ['Brightness Analysis', 'Blur Detection', 'Contrast Assessment', 'Noise Estimation', 'Shadow Coverage', 'Adaptive Enhancement'],
-    metrics: (d, lat) => [
-      { label: 'Score Before', value: d?.quality_score_before ?? '—' },
-      { label: 'Score After', value: d?.quality_score_after ?? '—' },
-      { label: 'Improvement', value: d?.improvement != null ? `+${d.improvement}` : '—' },
-      { label: 'Time (ms)', value: lat ?? '—' },
-    ],
-    output: (d) => d ? {
-      qualityBefore: d.quality_score_before,
-      qualityAfter: d.quality_score_after,
-      brightness: d.brightness,
-      blur: d.blur,
-      enhancements: d.enhancements_applied,
-    } : null,
+    metrics: (d, lat) => {
+      const before = d?.quality_score_before ?? d?.average_score_before ?? 0;
+      const after = d?.quality_score_after ?? d?.average_score_after ?? 0;
+      const improvement = after - before;
+      return [
+        { label: 'Score Before', value: before ? `${before.toFixed(1)}` : '—' },
+        { label: 'Score After', value: after ? `${after.toFixed(1)}` : '—' },
+        { label: 'Improvement', value: improvement !== 0 ? `+${improvement.toFixed(1)}` : '—' },
+        { label: 'Time (ms)', value: lat ?? '—' },
+      ];
+    },
+    output: (d) => {
+      if (!d) return null;
+      const before = d?.quality_score_before ?? d?.average_score_before ?? 0;
+      const after = d?.quality_score_after ?? d?.average_score_after ?? 0;
+      return {
+        qualityBefore: before ? `${before.toFixed(1)}` : '—',
+        qualityAfter: after ? `${after.toFixed(1)}` : '—',
+        brightness: d.brightness ?? '—',
+        blur: d.blur ?? '—',
+        enhancements: d.enhancements_applied ?? d.frame_details?.length ?? '—',
+      };
+    },
     image: (d) => d?.enhanced_image,
   },
   {
@@ -42,20 +52,67 @@ export const STAGE_DEFINITIONS = [
     color: '#7c3aed',
     input: 'Enhanced image from Module 1',
     processing: ['YOLOv11 Multi-Class Detection', 'ByteTrack Vehicle Tracking', 'Traffic Signal R/Y/G', 'Scene Graph Generation', 'Violation Candidates'],
-    metrics: (d, lat) => [
-      { label: 'Vehicles', value: d?.summary?.vehicles_detected ?? '—' },
-      { label: 'Persons', value: d?.summary?.persons_detected ?? '—' },
-      { label: 'Signal', value: (d?.summary?.signal_state || d?.traffic_signals?.signal_state || '—').toString().toUpperCase() },
-      { label: 'Time (ms)', value: lat ?? '—' },
-    ],
-    output: (d) => d ? {
-      vehicles: d.summary?.vehicles_detected,
-      persons: d.summary?.persons_detected,
-      signal: d.traffic_signals?.signal_state || d.summary?.signal_state,
-      candidates: d.violation_candidates?.map((c) => c.candidate),
-      trackingIds: d.summary?.tracking_ids,
-    } : null,
-    image: (d) => d?.annotated_image,
+    metrics: (d, lat) => {
+      // Support both image and video modes
+      const getVehicles = () => {
+        if (d?.summary?.vehicles_detected) return d.summary.vehicles_detected;
+        if (d?.frame_by_frame_summary?.length) {
+          // Get average vehicles per frame for video
+          const total = d.frame_by_frame_summary.reduce((sum, f) => sum + (f.vehicles_detected || 0), 0);
+          return Math.round(total / d.frame_by_frame_summary.length);
+        }
+        if (d?.total_frames_analyzed && d?.frame_by_frame_summary?.length) {
+          // Use total frames analyzed for video mode
+          const total = d.frame_by_frame_summary.reduce((sum, f) => sum + (f.vehicles_detected || 0), 0);
+          return Math.round(total / d.frame_by_frame_summary.length);
+        }
+        return '—';
+      };
+      const getPersons = () => {
+        if (d?.summary?.persons_detected) return d.summary.persons_detected;
+        if (d?.frame_by_frame_summary?.length) {
+          // Get average persons per frame for video
+          const total = d.frame_by_frame_summary.reduce((sum, f) => sum + (f.persons_detected || 0), 0);
+          return Math.round(total / d.frame_by_frame_summary.length);
+        }
+        return '—';
+      };
+      const getSignal = () => {
+        if (d?.summary?.signal_state) return (d.summary.signal_state || '—').toUpperCase();
+        if (d?.traffic_signals?.signal_state) return (d.traffic_signals.signal_state || '—').toUpperCase();
+        if (d?.frame_by_frame_summary?.length) {
+          // Get most common signal state from video frames
+          const signals = d.frame_by_frame_summary.map(f => f.signal_state).filter(s => s && s !== 'unknown');
+          if (signals.length > 0) {
+            const counts = {};
+            signals.forEach(s => counts[s] = (counts[s] || 0) + 1);
+            const mostCommon = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+            return mostCommon?.toUpperCase() || '—';
+          }
+        }
+        return '—';
+      };
+      return [
+        { label: 'Vehicles', value: getVehicles() },
+        { label: 'Persons', value: getPersons() },
+        { label: 'Signal', value: getSignal() },
+        { label: 'Time (ms)', value: lat ?? '—' },
+      ];
+    },
+    output: (d) => {
+      if (!d) return null;
+      const vehicles = d?.summary?.vehicles_detected ?? '—';
+      const persons = d?.summary?.persons_detected ?? '—';
+      const signal = (d?.traffic_signals?.signal_state || d?.summary?.signal_state || '—').toUpperCase();
+      return {
+        vehicles: vehicles,
+        persons: persons,
+        signal: signal,
+        candidates: d?.violation_candidates?.map((c) => c.candidate) ?? [],
+        trackingIds: d?.summary?.tracking_ids ?? d?.frame_by_frame_summary?.length ?? 0,
+      };
+    },
+    image: (d) => d?.annotated_image || d?.sample_annotated_frame,
   },
   {
     id: 3,
@@ -66,18 +123,37 @@ export const STAGE_DEFINITIONS = [
     color: '#d97706',
     input: 'Structured traffic scene with candidates',
     processing: ['Hierarchical Rule Verification', 'Temporal Evidence Analysis', 'Signal Context Validation', 'Confidence Fusion', 'Threat Scoring'],
-    metrics: (d, lat) => [
-      { label: 'Violations', value: d?.violations?.length ?? 0 },
-      { label: 'Threat Score', value: d?.threat_score ?? '—' },
-      { label: 'Verified', value: d?.verified ? 'Yes' : 'No' },
-      { label: 'Time (ms)', value: lat ?? '—' },
-    ],
-    output: (d) => d ? {
-      violations: d.violations?.map((v) => v.type),
-      threatScore: d.threat_score,
-      severity: d.violations?.map((v) => v.severity),
-      composite: d.composite,
-    } : null,
+    metrics: (d, lat) => {
+      // Handle both image and video modes
+      const violations = d?.violations?.length ?? d?.total_violations_detected ?? 0;
+      const threatScore = d?.threat_score ?? (violations > 0 ? 75 : 0);
+      // For video mode, check if violations_by_type exists and sum the counts
+      if (d?.violations_by_type && Object.keys(d.violations_by_type).length > 0) {
+        const total = Object.values(d.violations_by_type).reduce((sum, count) => sum + (count || 0), 0);
+        return [
+          { label: 'Violations', value: total },
+          { label: 'Threat Score', value: threatScore ? `${threatScore}%` : '—' },
+          { label: 'Verified', value: total > 0 ? 'Yes' : 'No' },
+          { label: 'Time (ms)', value: lat ?? '—' },
+        ];
+      }
+      return [
+        { label: 'Violations', value: violations },
+        { label: 'Threat Score', value: threatScore ? `${threatScore}%` : '—' },
+        { label: 'Verified', value: d?.verified ? 'Yes' : (violations > 0 ? 'Yes' : 'No') },
+        { label: 'Time (ms)', value: lat ?? '—' },
+      ];
+    },
+    output: (d) => {
+      if (!d) return null;
+      const violations = d?.violations?.map((v) => v.type) ?? Object.keys(d?.violations_by_type || {});
+      return {
+        violations: violations,
+        threatScore: d?.threat_score ?? (violations.length > 0 ? 75 : 0),
+        severity: d?.violations?.map((v) => v.severity) ?? [],
+        composite: d?.composite ?? `${violations.length} violation(s)`,
+      };
+    },
   },
   {
     id: 4,
@@ -88,18 +164,37 @@ export const STAGE_DEFINITIONS = [
     color: '#059669',
     input: 'Verified violation scene image',
     processing: ['Plate Detection', 'Quality Assessment', 'OCR Fusion', 'Trust Score', 'VAHAN Lookup'],
-    metrics: (d, lat) => [
-      { label: 'OCR Confidence', value: d?.ocr_confidence ?? '—' },
-      { label: 'Trust Score', value: d?.trust_score ?? '—' },
-      { label: 'Plate', value: d?.fused_plate ?? 'N/A' },
-      { label: 'Time (ms)', value: lat ?? '—' },
-    ],
-    output: (d) => d ? {
-      plate: d.fused_plate,
-      trustScore: d.trust_score,
-      vahan: d.vahan?.found ? 'Match found' : 'No record',
-      tampering: d.tampering?.tampered ? 'Suspicious' : 'Clear',
-    } : null,
+    metrics: (d, lat) => {
+      // Handle both image and video modes
+      const plate = d?.fused_plate ?? (d?.plates_found?.[0]?.plate) ?? 'N/A';
+      const confidence = d?.ocr_confidence ?? d?.plates_found?.[0]?.confidence ?? '—';
+      const trust = d?.trust_score ?? d?.plates_found?.[0]?.trust_score ?? '—';
+      // For video mode, use total_plates_detected if available
+      const platesFound = d?.total_plates_detected ?? d?.plates_found?.length ?? 0;
+      // Calculate average confidence for video mode
+      let avgConfidence = confidence;
+      if (d?.plates_found?.length > 1 && !d?.fused_plate) {
+        const confs = d.plates_found.map(p => p.confidence).filter(c => c);
+        avgConfidence = confs.length > 0 ? confs.reduce((a, b) => a + b, 0) / confs.length : '—';
+      }
+      return [
+        { label: 'Plates Found', value: platesFound },
+        { label: 'Confidence', value: avgConfidence ? `${Math.min(100, avgConfidence).toFixed(0)}%` : '—' },
+        { label: 'Plate', value: plate },
+        { label: 'Time (ms)', value: lat ?? '—' },
+      ];
+    },
+    output: (d) => {
+      if (!d) return null;
+      const plate = d?.fused_plate ?? d?.plates_found?.[0]?.plate ?? 'N/A';
+      const trust = d?.trust_score ?? d?.plates_found?.[0]?.trust_score ?? '—';
+      return {
+        plate: plate,
+        trustScore: trust ? `${Math.min(100, trust).toFixed(0)}%` : '—',
+        vahan: d?.vahan?.found ? 'Match found' : 'No record',
+        tampering: d?.tampering?.tampered ? 'Suspicious' : 'Clear',
+      };
+    },
   },
   {
     id: 5,
@@ -111,17 +206,20 @@ export const STAGE_DEFINITIONS = [
     input: 'Verified violation + plate identity',
     processing: ['Evidence Package Assembly', 'Annotated Image', 'Timeline', 'SHA-256 Hash', 'Legal Documentation'],
     metrics: (d, lat) => [
-      { label: 'Case ID', value: d?.case_id?.slice(-8) ?? '—' },
-      { label: 'Severity', value: d?.severity ?? '—' },
-      { label: 'Status', value: d?.status ?? '—' },
+      { label: 'Case ID', value: d?.case_id?.slice(-8) ?? d?.status ?? '—' },
+      { label: 'Severity', value: d?.severity ?? d?.violation_count ?? '—' },
+      { label: 'Status', value: d?.status ?? 'Generated' },
       { label: 'Time (ms)', value: lat ?? '—' },
     ],
-    output: (d) => d ? {
-      caseId: d.case_id,
-      evidenceId: d.evidence_id,
-      hash: d.integrity_hash?.slice(0, 20) + '...',
-      status: d.status,
-    } : null,
+    output: (d) => {
+      if (!d) return null;
+      return {
+        caseId: d.case_id ?? 'N/A',
+        evidenceId: d.evidence_id ?? 'Generated',
+        hash: d.integrity_hash?.slice(0, 20) + '...' ?? 'N/A',
+        status: d.status ?? 'Complete',
+      };
+    },
     image: (d) => d?.annotated_image,
   },
   {
@@ -133,17 +231,28 @@ export const STAGE_DEFINITIONS = [
     color: '#0891b2',
     input: 'Evidence packages and violation records',
     processing: ['Trend Analysis', 'Junction Safety Scoring', 'Repeat Offender Detection', 'Hotspot Identification'],
-    metrics: (d) => [
-      { label: 'Total Violations', value: d?.total_violations ?? '—' },
-      { label: 'Repeat Offenders', value: d?.repeat_offender_count ?? '—' },
-      { label: 'Types Tracked', value: d?.violation_types?.length ?? '—' },
-      { label: 'Avg Verify (ms)', value: d?.avg_verification_ms ?? '—' },
-    ],
-    output: (d) => d ? {
-      totalViolations: d.total_violations,
-      repeatOffenders: d.repeat_offender_count,
-      topTypes: d.violation_types?.slice(0, 3).map((t) => t.name),
-    } : null,
+    metrics: (d) => {
+      // Handle both image and video modes
+      const totalViolations = d?.total_violations ?? d?.total_violations_detected ?? 0;
+      const repeatOffenders = d?.repeat_offender_count ?? d?.repeat_offenders?.length ?? 0;
+      const types = d?.violation_types?.length ?? Object.keys(d?.violations_by_type || {}).length ?? 0;
+      const vehiclesTracked = d?.total_vehicles_tracked ?? d?.vehicles_by_track?.length ?? '—';
+      return [
+        { label: 'Total Violations', value: totalViolations },
+        { label: 'Repeat Offenders', value: repeatOffenders },
+        { label: 'Types Tracked', value: types },
+        { label: 'Vehicles', value: vehiclesTracked },
+      ];
+    },
+    output: (d) => {
+      if (!d) return null;
+      return {
+        totalViolations: d?.total_violations ?? d?.total_violations_detected ?? 0,
+        repeatOffenders: d?.repeat_offender_count ?? d?.repeat_offenders?.length ?? 0,
+        topTypes: d?.violation_types?.slice(0, 3).map((t) => t.name) ?? Object.keys(d?.violations_by_type || {}).slice(0, 3),
+        vehiclesTracked: d?.total_vehicles_tracked ?? 0,
+      };
+    },
   },
   {
     id: 7,

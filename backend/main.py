@@ -15,6 +15,7 @@ from .routers import (
     pipeline,
     assistant,
     command_center,
+    bluetooth_camera,
 )
 
 
@@ -46,6 +47,7 @@ app.include_router(module8_predictions.router, prefix="/api/predictions", tags=[
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["Pipeline"])
 app.include_router(assistant.router, prefix="/api/assistant", tags=["Assistant"])
 app.include_router(command_center.router, prefix="/api/command-center", tags=["Command Center"])
+app.include_router(bluetooth_camera.router, prefix="/api/bluetooth", tags=["Bluetooth Camera"])
 
 
 @app.get("/")
